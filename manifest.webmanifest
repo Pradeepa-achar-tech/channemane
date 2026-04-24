@@ -1,0 +1,22 @@
+{
+  "name": "ಚನ್ನೆಮಣೆ — Channemane",
+  "short_name": "Channemane",
+  "description": "A classic Kannada mancala-style board game. Play against a friend or the computer.",
+  "lang": "kn",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1B3A2D",
+  "theme_color": "#1B3A2D",
+  "categories": ["games", "board", "entertainment"],
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
