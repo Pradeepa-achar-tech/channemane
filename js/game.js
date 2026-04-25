@@ -378,12 +378,25 @@ function setRunningState(running){
   $('#playBtn').toggle(!running);
   $('#stopBtn').toggle(running);
   $('#runningBadge').toggle(running);
+  // Fullscreen play mode toggle
+  $('body').toggleClass('playing', running);
+  if(!running){
+    $('.controls').removeClass('revealed');
+    if(controlsHideTimer){ clearTimeout(controlsHideTimer); controlsHideTimer = null; }
+  }
   if(running){
-    // Belt-and-braces: ensure no residual modal backdrop is
-    // blocking clicks on the board.
     $('.modal-backdrop').remove();
     $('body').removeClass('modal-open').css({overflow:'', 'padding-right':''});
   }
+}
+
+let controlsHideTimer = null;
+function revealControls(){
+  $('.controls').addClass('revealed');
+  if(controlsHideTimer) clearTimeout(controlsHideTimer);
+  controlsHideTimer = setTimeout(()=>{
+    $('.controls').removeClass('revealed');
+  }, 3500);
 }
 
 function stopGame(){
@@ -514,6 +527,10 @@ function refreshPlayerNameUI(){
 function updateTurnIndicator(){
   const who = gameState.playerNames[gameState.currentPlayer] || '';
   $('#turnWho').text(who);
+  $('#floatingTurnWho').text(who);
+  $('#floatingScore').text(
+    gameState.pits[P1_STORE] + ' — ' + gameState.pits[P2_STORE]
+  );
   $('#p1Card').toggleClass('active', gameState.currentPlayer === 1);
   $('#p2Card').toggleClass('active', gameState.currentPlayer === 2);
 
@@ -1160,6 +1177,24 @@ $(function(){
   $(document).on('click', '.log-panel', function(){
     if(window.matchMedia('(max-width: 768px)').matches){
       $(this).toggleClass('expanded');
+    }
+  });
+
+  // Top tap-zone: reveals the action bar in fullscreen play mode
+  $('#tapZoneTop').on('click', (e)=>{
+    e.stopPropagation();
+    revealControls();
+  });
+  // Tapping the controls bar resets the auto-hide timer so the user
+  // has time to actually press a button.
+  $('.controls').on('click', ()=>{
+    if($('body').hasClass('playing')) revealControls();
+  });
+  // Tapping anywhere else on the board hides the bar early.
+  $(document).on('click', '.board-stage', ()=>{
+    if($('body').hasClass('playing') && $('.controls').hasClass('revealed')){
+      $('.controls').removeClass('revealed');
+      if(controlsHideTimer){ clearTimeout(controlsHideTimer); controlsHideTimer = null; }
     }
   });
 

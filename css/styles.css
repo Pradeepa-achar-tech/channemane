@@ -955,6 +955,138 @@ body:not(.modal-open) .modal-backdrop{
   }
 }
 
+/* ============================================================
+   FULLSCREEN PLAY MODE
+   When body.playing is set, the page collapses into an immersive
+   board view: no chrome, board fills the viewport, action bar is
+   hidden until the user taps the top edge.
+============================================================ */
+#tapZoneTop{
+  display:none;
+  position:fixed;
+  top:0; left:0; right:0;
+  height: calc(36px + env(safe-area-inset-top, 0px));
+  z-index:55;
+  cursor:pointer;
+  pointer-events:auto;
+}
+#tapZoneTop .tap-hint{
+  position:absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 6px);
+  left:50%;
+  transform:translateX(-50%);
+  width:42px; height:24px;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,0.45);
+  border:1px solid rgba(218,165,32,0.5);
+  border-radius:0 0 12px 12px;
+  color:var(--gold-bright);
+  font-size:1.1rem;
+  text-shadow:0 0 6px rgba(255,215,0,0.6);
+  pointer-events:none;
+}
+
+.floating-turn{ display:none; }
+body.playing .floating-turn{
+  display:flex !important;
+  align-items:center;
+  gap:8px;
+  position:fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  left:50%;
+  transform:translateX(-50%);
+  background:rgba(20,10,4,0.85);
+  border:1px solid rgba(218,165,32,0.55);
+  border-radius:999px;
+  padding:6px 16px;
+  color:var(--cream);
+  font-size:0.85rem;
+  letter-spacing:0.5px;
+  z-index:50;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+.floating-turn .floating-score{
+  color:var(--gold-bright);
+  font-weight:700;
+  margin-left:6px;
+  text-shadow:0 0 6px rgba(255,215,0,0.5);
+}
+
+body.playing{
+  overflow:hidden;
+}
+
+/* Hide all chrome while the game runs */
+body.playing .title-wrap,
+body.playing .log-panel,
+body.playing .kolam,
+body.playing .row.g-3{
+  display:none !important;
+}
+
+/* Show the tap zone at the top */
+body.playing #tapZoneTop{ display:block; }
+
+/* Controls bar slides down from the top when revealed */
+body.playing .controls{
+  position:fixed;
+  top:-120px;
+  left:0; right:0;
+  margin:0;
+  padding:10px 8px 18px;
+  background:linear-gradient(180deg, rgba(20,10,4,0.95) 0%, rgba(20,10,4,0.6) 80%, rgba(20,10,4,0) 100%);
+  z-index:60;
+  justify-content:center;
+  flex-wrap:wrap;
+  transition: top .3s cubic-bezier(.2,1,.4,1);
+}
+body.playing .controls.revealed{ top: env(safe-area-inset-top, 0); }
+
+/* Container fills viewport, no padding eating space */
+body.playing .container-xl{
+  padding:0 !important;
+  max-width:none !important;
+}
+
+/* Board takes the entire viewport */
+body.playing .board-stage{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+  perspective:none;
+}
+body.playing .board{
+  transform:none;             /* drop the desktop tilt */
+  margin:0 auto;
+}
+
+/* Portrait phones: rotate the whole board 90° so the long axis of
+   the board uses the long axis of the phone — gives huge pits and
+   feels like a proper handheld game. The pits/stores keep their
+   normal click behaviour because CSS transforms preserve hit-test. */
+@media (orientation: portrait) and (max-width: 900px){
+  body.playing .board{
+    transform: rotate(90deg);
+    transform-origin: center center;
+  }
+  /* Make pits bigger when rotated since we have lots of vertical
+     space along the rotated axis. */
+  body.playing .pit{ width: 56px; height: 56px; }
+  body.playing .store{ width: 70px; height: 150px; }
+  body.playing .big-count-inside{ font-size:1.25rem; }
+  body.playing .store .big-count-inside{ font-size:1.7rem; }
+  body.playing .seed{ width:9px; height:7px; }
+}
+@media (orientation: portrait) and (max-width: 420px){
+  body.playing .pit{ width: 46px; height: 46px; }
+  body.playing .store{ width: 58px; height: 124px; }
+  body.playing .big-count-inside{ font-size:1.05rem; }
+  body.playing .store .big-count-inside{ font-size:1.4rem; }
+}
+
 /* Standalone PWA — hide URL-bar spacing & safe-area tweaks */
 @media (display-mode: standalone){
   body{
