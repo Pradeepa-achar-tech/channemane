@@ -1,20 +1,41 @@
 /* =============================================================
-   Channemane — game logic
-   Indices:
+   Channemane — TRADITIONAL Karnataka rules
+   ===========================================
      0..6   = P1 bottom row (left→right)
-     7      = P1 store (right end)
-     8..14  = P2 top row in SOWING order (ccw). Displayed L→R
-              top row = [14,13,12,11,10,9,8]
-     15     = P2 store (left end)
-   Sowing path: 0→1→…→6→7→8→…→14→15→0
-   opposite(i) = 14 - i
+     7..13  = P2 top row in SOWING order (ccw)
+              On screen the top row is displayed L→R as [13,12,11,10,9,8,7]
+
+   No on-board stores. Each player has a private "house" off the
+   board where captured seeds go (gameState.houses[1|2]).
+
+   Turn structure:
+     - Pick up all seeds from any of your live, non-empty pits
+     - Sow them CCW one-by-one (skipping any DEAD pits)
+     - After the last seed, look at the NEXT pit:
+         * if it has seeds → pick those up and continue sowing
+         * if it is empty → look at the pit AFTER it:
+             - if THAT has seeds → CAPTURE those into your house, turn ends
+             - if THAT is also empty → turn ends, no capture
+
+   Round end:
+     When the player whose turn it would be has zero seeds in any
+     of their live pits. Any seeds left on the OPPONENT'S row at
+     that moment go into the opponent's house.
+
+   Next round:
+     Each player tries to fill their pits with 4 seeds each from
+     their house. Pits that can't be filled (insufficient seeds)
+     become DEAD pits (ಸತ್ತ ಮನೆ) — skipped permanently from now on.
+
+   Game end:
+     When a player has no live pits at the start of a new round.
+     Player with the most seeds in their house wins.
 ============================================================= */
 
+const TOTAL_PITS = 14;
 const P1_ROW = [0,1,2,3,4,5,6];
-const P2_ROW = [8,9,10,11,12,13,14];
-const P2_ROW_DISPLAY = [14,13,12,11,10,9,8];
-const P1_STORE = 7;
-const P2_STORE = 15;
+const P2_ROW = [7,8,9,10,11,12,13];          // sowing order
+const P2_ROW_DISPLAY = [13,12,11,10,9,8,7];  // L→R on screen
 
 /* ----------------------------------------------------------- i18n */
 const I18N = {
@@ -38,33 +59,39 @@ const I18N = {
     rules:    "ನಿಯಮಗಳು",
     install:  "ಸ್ಥಾಪಿಸಿ",
     langToggle:"EN",
-    store:    "ಕಲ್ಲು",
-    storeLabelP1: "ನಿಮ್ಮ ಕಲ್ಲು",
-    storeLabelP2: "ಕಲ್ಲು",
+    store:    "ಮನೆ",
+    storeLabelP1: "ನಿಮ್ಮ ಮನೆ",
+    storeLabelP2: "ಮನೆ",
     turn:     "ಸರದಿ",
     thinking: "ಕಂಪ್ಯೂಟರ್ ಯೋಚಿಸುತ್ತಿದೆ...",
     moveLog:  "ಚಲನೆಯ ದಾಖಲೆ",
     noMoves:  "ಯಾವುದೇ ಚಲನೆಗಳಿಲ್ಲ.",
     capture:  "ಹಿಡಿತ! +{n} ಕಾಳುಗಳು",
-    bonus:    "ಬೋನಸ್ ಸರದಿ!",
     invalid:  "ಅಮಾನ್ಯ ಚಲನೆ",
     notYourPit:"ನಿಮ್ಮ ಕುಳಿ ಅಲ್ಲ",
     winner:   "{name} ಗೆದ್ದರು!",
     victory:  "ವಿಜಯ!",
     close:    "ಮುಚ್ಚಿ",
     tie:      "ಸಮಸಂಖ್ಯೆ!",
+    round:    "ಸುತ್ತು {n}",
+    roundEnd:    "ಸುತ್ತು ಮುಗಿದಿದೆ",
+    newRound:    "ಸುತ್ತು {n} ಪ್ರಾರಂಭ",
+    deadPit:     "ಸತ್ತ ಮನೆ",
+    deadPitsAdded: "{n} ಸತ್ತ ಮನೆಗಳಾದವು",
     logSow:     "{name} ಕುಳಿ {i} ರಿಂದ ಬಿತ್ತಿದರು",
-    logCapture: "{name} — ಕುಳಿ {i} ಮತ್ತು {o} ರಿಂದ {n} ಕಾಳುಗಳನ್ನು ಹಿಡಿದರು",
+    logCapture: "{name} ಕುಳಿ {i} ರಿಂದ {n} ಕಾಳುಗಳನ್ನು ಹಿಡಿದರು",
+    logRoundEnd: "ಸುತ್ತು {n} ಮುಗಿಯಿತು",
     rulesTitle: "ಹೇಗೆ ಆಡಬೇಕು",
     rulesList: [
-      "ಪ್ರತಿಯೊಬ್ಬ ಆಟಗಾರನಿಗೆ 7 ಕುಳಿಗಳ ಒಂದು ಸಾಲು ಮತ್ತು ಬಲಭಾಗದಲ್ಲಿ ಒಂದು ಕಲ್ಲು (ಸಂಗ್ರಹ) ಇರುತ್ತದೆ.",
-      "ನಿಮ್ಮ ಸರದಿಯಲ್ಲಿ ನಿಮ್ಮ ಯಾವುದೇ ಖಾಲಿ ಅಲ್ಲದ ಕುಳಿಯಿಂದ ಎಲ್ಲಾ ಕಾಳುಗಳನ್ನು ಎತ್ತಿಕೊಳ್ಳಿ.",
-      "ಅವುಗಳನ್ನು ಎಣಿಸುವ ದಿಕ್ಕಿನ ವಿರುದ್ಧ ಒಂದೊಂದಾಗಿ ಕುಳಿಗಳಲ್ಲಿ ಬಿತ್ತಿರಿ.",
-      "ನಿಮ್ಮ ಸ್ವಂತ ಕಲ್ಲನ್ನು ಸೇರಿಸಿ, ಆದರೆ ಪ್ರತಿಸ್ಪರ್ಧಿಯ ಕಲ್ಲನ್ನು ಬಿಟ್ಟುಬಿಡಿ.",
-      "ಹಿಡಿತ: ಕೊನೆಯ ಕಾಳು ನಿಮ್ಮ ಕಡೆಯ ಖಾಲಿ ಕುಳಿಯಲ್ಲಿ ಬಿದ್ದು, ವಿರುದ್ಧ ಕುಳಿಯಲ್ಲಿ ಕಾಳುಗಳಿದ್ದರೆ, ಎರಡೂ ರಾಶಿಗಳು ನಿಮ್ಮ ಕಲ್ಲಿಗೆ ಸೇರುತ್ತವೆ.",
-      "ಬೋನಸ್ ಸರದಿ: ಕೊನೆಯ ಕಾಳು ನಿಮ್ಮ ಸ್ವಂತ ಕಲ್ಲಿನಲ್ಲಿ ಬಿದ್ದರೆ, ಮತ್ತೆ ಆಡಿ.",
-      "ಒಬ್ಬ ಆಟಗಾರನ ಸಾಲು ಸಂಪೂರ್ಣ ಖಾಲಿಯಾದಾಗ ಆಟ ಮುಗಿಯುತ್ತದೆ. ಉಳಿದ ಕಾಳುಗಳು ಇನ್ನೊಬ್ಬ ಆಟಗಾರನಿಗೆ ಸೇರುತ್ತವೆ.",
-      "ಕಲ್ಲಿನಲ್ಲಿ ಹೆಚ್ಚು ಕಾಳುಗಳಿರುವ ಆಟಗಾರನೇ ವಿಜೇತ."
+      "14 ಕುಳಿಗಳಿರುವ ಮಣೆಯಲ್ಲಿ ಪ್ರತಿಯೊಬ್ಬ ಆಟಗಾರನಿಗೆ 7 ಕುಳಿಗಳಿರುತ್ತವೆ. ಪ್ರಾರಂಭದಲ್ಲಿ ಪ್ರತಿ ಕುಳಿಯಲ್ಲಿ 4 ಕಾಳುಗಳಿರುತ್ತವೆ.",
+      "ಪ್ರತಿಯೊಬ್ಬ ಆಟಗಾರನ ಬಳಿ ಮಣೆಯ ಹೊರಗೆ ಒಂದು ಸ್ವಂತ ಮನೆ ಇರುತ್ತದೆ — ಹಿಡಿದ ಕಾಳುಗಳು ಅಲ್ಲಿಗೆ ಸೇರುತ್ತವೆ.",
+      "ನಿಮ್ಮ ಸರದಿ: ನಿಮ್ಮ ಯಾವುದೇ ಜೀವಂತ ಕುಳಿಯಿಂದ ಎಲ್ಲಾ ಕಾಳುಗಳನ್ನು ಎತ್ತಿಕೊಂಡು, ಎಣಿಸುವ ದಿಕ್ಕಿನ ವಿರುದ್ಧ (ಪ್ರತಿ-ಗಡಿಯಾರ) ಒಂದೊಂದಾಗಿ ಬಿತ್ತಿರಿ.",
+      "ಮುಂದುವರಿಕೆ: ನಿಮ್ಮ ಕೊನೆಯ ಕಾಳು ಬಿದ್ದ ನಂತರ ಮುಂದಿನ ಕುಳಿಯಲ್ಲಿ ಕಾಳುಗಳಿದ್ದರೆ, ಅವುಗಳನ್ನೂ ಎತ್ತಿಕೊಂಡು ಮುಂದುವರಿಸಿ.",
+      "ಹಿಡಿತ: ಕೊನೆಯ ಕಾಳಿನ ನಂತರದ ಕುಳಿ ಖಾಲಿಯಾಗಿದ್ದು, ಅದರ ನಂತರದ ಕುಳಿಯಲ್ಲಿ ಕಾಳುಗಳಿದ್ದರೆ, ಆ ಕಾಳುಗಳನ್ನು ನಿಮ್ಮ ಮನೆಗೆ ಹಿಡಿದುಕೊಳ್ಳುತ್ತೀರಿ — ಸರದಿ ಮುಗಿಯುತ್ತದೆ.",
+      "ಸರದಿಯ ಅಂತ್ಯ: ಕೊನೆಯ ಕಾಳಿನ ನಂತರ ಎರಡು ಸತತ ಖಾಲಿ ಕುಳಿಗಳು ಬಂದರೆ ಸರದಿ ಮುಗಿಯುತ್ತದೆ.",
+      "ಸುತ್ತಿನ ಅಂತ್ಯ: ಯಾವುದೇ ಆಟಗಾರನ ಎಲ್ಲ ಕುಳಿಗಳು ಖಾಲಿಯಾದಾಗ ಸುತ್ತು ಮುಗಿಯುತ್ತದೆ. ಮಣೆಯಲ್ಲಿ ಉಳಿದ ಕಾಳುಗಳನ್ನು ಇನ್ನೊಬ್ಬ ಆಟಗಾರ ತಮ್ಮ ಮನೆಗೆ ಸೇರಿಸಿಕೊಳ್ಳುತ್ತಾರೆ.",
+      "ಮುಂದಿನ ಸುತ್ತು: ಪ್ರತಿಯೊಬ್ಬರು ತಮ್ಮ ಮನೆಯಿಂದ 4 ಕಾಳುಗಳಂತೆ ತಮ್ಮ ಕುಳಿಗಳನ್ನು ತುಂಬುತ್ತಾರೆ. ತುಂಬಲಾಗದ ಕುಳಿಗಳು 'ಸತ್ತ ಮನೆ'ಗಳಾಗುತ್ತವೆ — ಮುಂದೆ ಆ ಕುಳಿಗಳನ್ನು ಯಾವಾಗಲೂ ಬಿಟ್ಟುಬಿಡಲಾಗುತ್ತದೆ.",
+      "ಆಟದ ಅಂತ್ಯ: ಯಾವುದೇ ಆಟಗಾರನಿಗೆ ಜೀವಂತ ಕುಳಿ ಉಳಿಯದಿದ್ದಾಗ ಆಟ ಮುಗಿಯುತ್ತದೆ. ಮನೆಯಲ್ಲಿ ಹೆಚ್ಚು ಕಾಳುಗಳಿರುವವರೇ ವಿಜೇತ."
     ],
     gotIt: "ಸರಿ",
     /* setup modal */
@@ -100,33 +127,39 @@ const I18N = {
     rules:    "Rules",
     install:  "Install",
     langToggle: "ಕ",
-    store:    "Store",
-    storeLabelP1: "Your Store",
-    storeLabelP2: "Store",
+    store:    "House",
+    storeLabelP1: "Your House",
+    storeLabelP2: "House",
     turn:     "Turn",
     thinking: "Computer is thinking...",
     moveLog:  "Move Log",
     noMoves:  "No moves yet.",
     capture:  "Capture! +{n} seeds",
-    bonus:    "Bonus Turn!",
     invalid:  "Invalid move",
     notYourPit: "Not your pit",
     winner:   "{name} Wins!",
     victory:  "Victory!",
     close:    "Close",
     tie:      "It's a Tie!",
+    round:    "Round {n}",
+    roundEnd:    "Round complete",
+    newRound:    "Round {n} begins",
+    deadPit:     "Dead pit",
+    deadPitsAdded: "{n} pit(s) became dead",
     logSow:     "{name} sowed from pit {i}",
-    logCapture: "{name} captured {n} seeds from pits {i} + {o}",
+    logCapture: "{name} captured {n} seeds from pit {i}",
+    logRoundEnd: "Round {n} ended",
     rulesTitle: "How to Play Channemane",
     rulesList: [
-      "Each player owns one row of 7 pits and the store on their right.",
-      "On your turn pick up all seeds from any of your non-empty pits.",
-      "Sow them one by one counter-clockwise into consecutive pits.",
-      "Include your own store when passing it, but skip the opponent's store.",
-      "Capture: if your last seed lands in an empty pit on your side and the opposite pit has seeds, you capture both piles into your store.",
-      "Bonus turn: if your last seed lands in your own store, play again.",
-      "The game ends when one player's row is entirely empty. Remaining seeds go to the other player.",
-      "The player with the most seeds in their store wins."
+      "The board has 14 pits — 7 per player. Each pit starts with 4 seeds.",
+      "Each player has a private \"house\" off the board where captured seeds are kept.",
+      "On your turn pick up all seeds from any of your live pits and sow them one by one counter-clockwise.",
+      "Continue: if the pit AFTER your last seed has seeds, pick those up and keep sowing.",
+      "Capture: if the pit after your last seed is EMPTY and the next one has seeds, those go into your house — your turn ends.",
+      "End of turn: if two consecutive empty pits follow your last seed, your turn ends with no capture.",
+      "End of round: when a player's entire row is empty. Any seeds left on the board go to the OTHER player's house.",
+      "Next round: each player refills their pits with 4 seeds each from their house. Pits that can't be filled become DEAD pits — they are skipped permanently.",
+      "End of game: when a player has no live pits left. The player with more seeds in their house wins."
     ],
     gotIt: "Got it",
     /* setup modal */
@@ -157,7 +190,10 @@ function t(key, params){
 
 /* ----------------------------------------------------------- state */
 const gameState = {
-  pits: new Array(16).fill(0),
+  pits: new Array(TOTAL_PITS).fill(0),    // 14 pits, no stores
+  houses: { 1: 0, 2: 0 },                 // private off-board houses
+  deadPits: new Set(),                    // indices of permanently-skipped pits
+  roundNumber: 1,
   currentPlayer: 1,
   gameMode: 'pvai',
   playerNames: { 1: '', 2: '' },
@@ -355,9 +391,10 @@ function ensureSeedLayout(pitIdx, count, isStore){
 
 /* ----------------------------------------------------------- init */
 function initGame(){
-  gameState.pits = new Array(16).fill(4);
-  gameState.pits[P1_STORE] = 0;
-  gameState.pits[P2_STORE] = 0;
+  gameState.pits = new Array(TOTAL_PITS).fill(4);
+  gameState.houses = { 1: 0, 2: 0 };
+  gameState.deadPits = new Set();
+  gameState.roundNumber = 1;
   gameState.currentPlayer = 1;
   gameState.isAnimating = false;
   gameState.gameOver = false;
@@ -368,7 +405,7 @@ function initGame(){
   refreshPlayerNameUI();
   renderLog();
   $('#thinking').text('');
-  $('.win-overlay, .confetti').remove();
+  $('.win-overlay, .confetti, .spark, .firework').remove();
   setRunningState(true);
 }
 
@@ -403,10 +440,13 @@ function stopGame(){
   gameState.gameOver = true;
   gameState.isAnimating = false;
   gameState.currentPlayer = 1;
-  gameState.pits = new Array(16).fill(0);
+  gameState.pits = new Array(TOTAL_PITS).fill(0);
+  gameState.houses = { 1: 0, 2: 0 };
+  gameState.deadPits = new Set();
+  gameState.roundNumber = 1;
   gameState.moveLog = [];
   renderBoard();
-  $('.win-overlay, .confetti, .flying-seed, .game-toast').remove();
+  $('.win-overlay, .confetti, .flying-seed, .game-toast, .spark, .firework').remove();
   $('#thinking').text('');
   $('#turnWho').text('');
   $('#p1Card, #p2Card').removeClass('active');
@@ -470,34 +510,19 @@ function onPitClick(idx, pitEl){
 /* ----------------------------------------------------------- render */
 function renderPit(idx){
   const count = gameState.pits[idx];
-  const isStore = (idx === P1_STORE || idx === P2_STORE);
-
-  if(isStore){
-    $('#store-' + idx + '-count').text(count);
-    const $store = $('#store-' + idx);
-    $store.find('.seed').remove();
-    if(count <= 30){
-      $store.find('.big-count-inside').css('opacity', count === 0 ? 1 : 0.25);
-      const layout = ensureSeedLayout(idx, count, true);
-      layout.forEach(s=>{
-        $store.append(
-          `<div class="seed ${s.colorClass}" style="left:${s.x}%; top:${s.y}%; --r:${s.r}deg;"></div>`
-        );
-      });
-    } else {
-      $store.find('.big-count-inside').css('opacity', 1);
-    }
-    return;
-  }
-
+  const isDead = gameState.deadPits.has(idx);
   const $pit = $('#pit-' + idx);
   const $big = $('#pit-' + idx + '-big');
   const $badge = $('#pit-' + idx + '-badge');
 
-  if($badge.length) $badge.text(count);
+  $pit.toggleClass('dead', isDead);
+  if($badge.length){
+    $badge.text(isDead ? '✕' : count);
+    $badge.toggleClass('dead', isDead);
+  }
   $pit.find('.seed').remove();
 
-  if(count === 0){ $big.hide(); return; }
+  if(isDead || count === 0){ $big.hide(); return; }
   if(count <= 12){
     $big.hide();
     const layout = ensureSeedLayout(idx, count, false);
@@ -511,10 +536,34 @@ function renderPit(idx){
   }
 }
 
+/* Renders a player's house — the off-board carved bowl. We re-use
+   the existing #store-7 (P1 right) and #store-15 (P2 left) DOM nodes. */
+function renderHouse(player){
+  const idx  = player === 1 ? 7 : 15;
+  const seed = -player;  // distinct seed-layout namespace, won't clash with pits
+  const count = gameState.houses[player];
+  const $store = $('#store-' + idx);
+  $('#store-' + idx + '-count').text(count);
+  $store.find('.seed').remove();
+  if(count <= 30){
+    $store.find('.big-count-inside').css('opacity', count === 0 ? 1 : 0.25);
+    const layout = ensureSeedLayout(seed, count, true);
+    layout.forEach(s=>{
+      $store.append(
+        `<div class="seed ${s.colorClass}" style="left:${s.x}%; top:${s.y}%; --r:${s.r}deg;"></div>`
+      );
+    });
+  } else {
+    $store.find('.big-count-inside').css('opacity', 1);
+  }
+}
+
 function renderBoard(){
-  for(let i=0;i<16;i++) renderPit(i);
-  $('#p1Store').text(gameState.pits[P1_STORE]);
-  $('#p2Store').text(gameState.pits[P2_STORE]);
+  for(let i=0; i<TOTAL_PITS; i++) renderPit(i);
+  renderHouse(1);
+  renderHouse(2);
+  $('#p1Store').text(gameState.houses[1]);
+  $('#p2Store').text(gameState.houses[2]);
 }
 
 /* Pushes player names into the UI (score cards + turn indicator). */
@@ -529,7 +578,8 @@ function updateTurnIndicator(){
   $('#turnWho').text(who);
   $('#floatingTurnWho').text(who);
   $('#floatingScore').text(
-    gameState.pits[P1_STORE] + ' — ' + gameState.pits[P2_STORE]
+    gameState.houses[1] + ' — ' + gameState.houses[2] +
+    ' · ' + t('round', {n: gameState.roundNumber})
   );
   $('#p1Card').toggleClass('active', gameState.currentPlayer === 1);
   $('#p2Card').toggleClass('active', gameState.currentPlayer === 2);
@@ -539,44 +589,44 @@ function updateTurnIndicator(){
   const row = gameState.currentPlayer === 1 ? P1_ROW : P2_ROW;
   if(gameState.gameMode === 'pvai' && gameState.currentPlayer === 2) return;
   row.forEach(i=>{
-    if(gameState.pits[i] > 0) $('#pit-' + i).removeClass('no-click');
+    if(!gameState.deadPits.has(i) && gameState.pits[i] > 0){
+      $('#pit-' + i).removeClass('no-click');
+    }
   });
 }
 
 /* ----------------------------------------------------------- logic */
 function isValidMove(player, pitIdx){
   if(gameState.gameOver || gameState.isAnimating) return false;
+  if(gameState.deadPits.has(pitIdx)) return false;
   const row = player === 1 ? P1_ROW : P2_ROW;
   if(!row.includes(pitIdx)) return false;
   if(gameState.pits[pitIdx] === 0) return false;
   return true;
 }
-function nextSowIdx(idx, player){
-  const skip = player === 1 ? P2_STORE : P1_STORE;
-  let n = (idx + 1) % 16;
-  if(n === skip) n = (n + 1) % 16;
+
+/* Next pit in the CCW sowing order — automatically skips dead pits.
+   Safety: returns -1 if every pit is dead (impossible in practice). */
+function nextPit(idx){
+  let n = (idx + 1) % TOTAL_PITS;
+  let safety = TOTAL_PITS;
+  while(gameState.deadPits.has(n) && safety-- > 0){
+    n = (n + 1) % TOTAL_PITS;
+  }
   return n;
 }
-function checkBonusTurn(lastIdx, player){
-  return lastIdx === (player === 1 ? P1_STORE : P2_STORE);
-}
-function checkCaptureSetup(lastIdx, player){
+
+function liveRow(player){
   const row = player === 1 ? P1_ROW : P2_ROW;
-  if(!row.includes(lastIdx)) return null;
-  if(gameState.pits[lastIdx] !== 1) return null;
-  const opp = 14 - lastIdx;
-  if(gameState.pits[opp] === 0) return null;
-  return { target:lastIdx, opposite:opp, store: player === 1 ? P1_STORE : P2_STORE };
+  return row.filter(i => !gameState.deadPits.has(i));
 }
-function rowSum(player){
-  const row = player === 1 ? P1_ROW : P2_ROW;
-  return row.reduce((a,i)=>a + gameState.pits[i], 0);
+function rowSeedCount(player){
+  return liveRow(player).reduce((a,i)=> a + gameState.pits[i], 0);
 }
-function sweepIntoStores(){
-  gameState.pits[P1_STORE] += rowSum(1);
-  gameState.pits[P2_STORE] += rowSum(2);
-  P1_ROW.forEach(i=> gameState.pits[i] = 0);
-  P2_ROW.forEach(i=> gameState.pits[i] = 0);
+function totalBoardSeeds(){
+  let s = 0;
+  for(let i=0;i<TOTAL_PITS;i++) s += gameState.pits[i];
+  return s;
 }
 
 /* ----------------------------------------------------------- animation */
@@ -634,57 +684,158 @@ async function _takeTurn(pitIdx){
 
   gameState.isAnimating = true;
   updateTurnIndicator();
-
-  const startIdx = pitIdx;
-  let seeds = gameState.pits[pitIdx];
-  gameState.pits[pitIdx] = 0;
-  renderPit(pitIdx);
   Sound.pickup();
 
-  let idx = pitIdx;
-  while(seeds > 0){
-    idx = nextSowIdx(idx, player);
-    await flySeed(startIdx, idx);
-    if(!gameState.isRunning) return;   // user hit Stop mid-sow
-    gameState.pits[idx]++;
-    renderPit(idx);
-    $('#pit-' + idx + ', #store-' + idx).find('.seed').last().addClass('drop');
-    Sound.clack();
-    seeds--;
-  }
-  const lastIdx = idx;
+  const startIdx = pitIdx;
+  let currentPit = pitIdx;
+  let safetyChain = 0;             // how many continue-sows in this turn
+  const MAX_CHAIN = 200;           // upper bound (huge for safety)
+  let didCapture = false;
 
-  const cap = checkCaptureSetup(lastIdx, player);
-  if(cap){
-    const captured = gameState.pits[cap.target] + gameState.pits[cap.opposite];
-    $('#pit-' + cap.target + ', #pit-' + cap.opposite).addClass('capture-flash');
-    await sleep(350);
+  // Continuous sowing loop. We pick up the current pit's seeds,
+  // sow CCW, then check the pit AFTER the last seed:
+  //   - has seeds → pick those up and continue
+  //   - empty → check pit-after-that:
+  //       has seeds → CAPTURE → turn ends
+  //       empty    → turn ends with no capture
+  while(safetyChain++ < MAX_CHAIN){
+    let seeds = gameState.pits[currentPit];
+    gameState.pits[currentPit] = 0;
+    renderPit(currentPit);
+
+    let lastIdx = currentPit;
+    while(seeds > 0){
+      lastIdx = nextPit(lastIdx);
+      await flySeed(currentPit, lastIdx);
+      if(!gameState.isRunning) return;
+      gameState.pits[lastIdx]++;
+      renderPit(lastIdx);
+      $('#pit-' + lastIdx).find('.seed').last().addClass('drop');
+      Sound.clack();
+      seeds--;
+    }
+
+    // After last seed dropped, examine the next pit.
+    const nextIdx = nextPit(lastIdx);
+
+    if(gameState.pits[nextIdx] > 0){
+      // CONTINUE: pick up this pit and keep sowing.
+      logMove('logSow', {p: player, i: currentPit});
+      currentPit = nextIdx;
+      await sleep(220);
+      if(!gameState.isRunning) return;
+      continue;
+    }
+
+    // nextIdx is empty — check the pit after it.
+    const captureIdx = nextPit(nextIdx);
+    const captureCount = gameState.pits[captureIdx];
+
+    // If captureIdx === nextIdx (e.g. only one live pit left) treat as no capture.
+    if(captureCount > 0 && captureIdx !== nextIdx && captureIdx !== lastIdx){
+      // CAPTURE
+      $('#pit-' + captureIdx).addClass('capture-flash');
+      $('#pit-' + nextIdx).addClass('capture-flash');
+      await sleep(380);
+      if(!gameState.isRunning) return;
+      gameState.houses[player] += captureCount;
+      gameState.pits[captureIdx] = 0;
+      renderPit(captureIdx);
+      renderPit(nextIdx);
+      renderHouse(player);
+      $('#pit-' + captureIdx + ', #pit-' + nextIdx).removeClass('capture-flash');
+      showBoardBanner(t('capture', {n: captureCount}), 'capture');
+      Sound.capture();
+      logMove('logCapture', {p: player, i: captureIdx, n: captureCount});
+      didCapture = true;
+    } else {
+      // Two empties (or wrap-around): turn ends with no capture
+      if(!didCapture) logMove('logSow', {p: player, i: startIdx});
+    }
+    break;
+  }
+
+  // Hand over to the other player and check whether the round ends
+  // because the next player has no live moves.
+  const nextPlayer = (player === 1) ? 2 : 1;
+  gameState.currentPlayer = nextPlayer;
+
+  if(rowSeedCount(nextPlayer) === 0){
+    // Round over — current `player` (the one who just moved) takes
+    // any seeds left on the board into their house.
+    await endRound(player);
+    if(gameState.gameOver) return;
+  }
+
+  gameState.isAnimating = false;
+  updateTurnIndicator();
+
+  // AI's move
+  if(!gameState.gameOver
+      && gameState.gameMode === 'pvai'
+      && gameState.currentPlayer === 2){
+    $('#thinking').text(t('thinking'));
+    await sleep(800);
     if(!gameState.isRunning) return;
-    gameState.pits[cap.store] += captured;
-    gameState.pits[cap.target] = 0;
-    gameState.pits[cap.opposite] = 0;
-    renderPit(cap.target);
-    renderPit(cap.opposite);
-    renderPit(cap.store);
-    $('#pit-' + cap.target + ', #pit-' + cap.opposite).removeClass('capture-flash');
-    showBoardBanner(t('capture', {n: captured}), 'capture');
-    Sound.capture();
-    logMove('logCapture', {p: player, i: lastIdx, o: cap.opposite, n: captured});
-  } else {
-    logMove('logSow', {p: player, i: startIdx});
+    $('#thinking').text('');
+    const mv = aiChooseMove();
+    if(mv !== null) takeTurn(mv);
+  }
+}
+
+/* ----------------------------------------------------------- end of round
+   `winnerOfRemainder` is the player who just finished a turn (the
+   opponent could not move). They sweep all remaining board seeds
+   into their house, then the next round is set up:
+     - each player tries to refill their pits with 4 seeds each from
+       their house. Pits that can't be filled become DEAD pits.
+     - if any player has no live pits, the game is over. */
+async function endRound(winnerOfRemainder){
+  showBoardBanner(t('roundEnd'), '');
+  Sound.bonus();
+  await sleep(900);
+
+  // Sweep board → winner's house
+  let remainder = 0;
+  for(let i=0; i<TOTAL_PITS; i++){
+    remainder += gameState.pits[i];
+    gameState.pits[i] = 0;
+  }
+  gameState.houses[winnerOfRemainder] += remainder;
+  logMove('logRoundEnd', {p: winnerOfRemainder, n: gameState.roundNumber});
+  renderBoard();
+  await sleep(600);
+
+  // Set up next round
+  gameState.roundNumber++;
+  let newDeadCount = 0;
+
+  for(const player of [1, 2]){
+    let house = gameState.houses[player];
+    const row = player === 1 ? P1_ROW : P2_ROW;
+    for(const i of row){
+      if(gameState.deadPits.has(i)) continue;
+      if(house >= 4){
+        gameState.pits[i] = 4;
+        house -= 4;
+      } else {
+        // Mark as dead; any leftover from the partially-filled pit
+        // stays in the house.
+        gameState.deadPits.add(i);
+        newDeadCount++;
+      }
+    }
+    gameState.houses[player] = house;
   }
 
-  let bonus = checkBonusTurn(lastIdx, player);
-  if(bonus && !gameState.gameOver){
-    $('#store-' + (player===1?P1_STORE:P2_STORE)).addClass('bonus-pulse');
-    setTimeout(()=>$('.store').removeClass('bonus-pulse'), 2000);
-    showBoardBanner(t('bonus'));
-    Sound.bonus();
+  renderBoard();
+  if(newDeadCount > 0){
+    showBoardBanner(t('deadPitsAdded', {n: newDeadCount}), 'capture');
+    await sleep(900);
   }
 
-  if(rowSum(1) === 0 || rowSum(2) === 0){
-    sweepIntoStores();
-    renderBoard();
+  // Game over check — a player with no live pits can't continue.
+  if(liveRow(1).length === 0 || liveRow(2).length === 0){
     gameState.gameOver = true;
     gameState.isAnimating = false;
     setRunningState(false);
@@ -692,72 +843,81 @@ async function _takeTurn(pitIdx){
     return;
   }
 
-  if(!bonus) gameState.currentPlayer = (player === 1) ? 2 : 1;
-  gameState.isAnimating = false;
-  updateTurnIndicator();
+  // Loser of the round (the player who couldn't move) plays first
+  // next round. That's the OTHER player from winnerOfRemainder.
+  gameState.currentPlayer = (winnerOfRemainder === 1) ? 2 : 1;
 
-  if(!gameState.gameOver
-      && gameState.gameMode === 'pvai'
-      && gameState.currentPlayer === 2){
-    $('#thinking').text(t('thinking'));
-    await sleep(800);
-    if(!gameState.isRunning) return;   // user stopped during AI think
-    $('#thinking').text('');
-    const mv = aiChooseMove();
-    if(mv !== null) takeTurn(mv);
-  }
+  showBoardBanner(t('newRound', {n: gameState.roundNumber}), '');
+  await sleep(900);
 }
 
 /* ----------------------------------------------------------- AI */
 function aiChooseMove(){
-  const valid = P2_ROW.filter(i=> gameState.pits[i] > 0);
+  const valid = liveRow(2).filter(i=> gameState.pits[i] > 0);
   if(valid.length === 0) return null;
   let best = valid[0], bestScore = -Infinity;
   for(const m of valid){
-    const s = evaluateMove(m, 2);
+    const s = simulateMove(m, 2);
     if(s > bestScore){ bestScore = s; best = m; }
   }
   return best;
 }
-function evaluateMove(pitIdx, player){
+
+/* Simulate a complete turn (continue-sow + jump-capture) for `player`
+   on a snapshot of the board, return a heuristic score. */
+function simulateMove(pitIdx, player){
   const pits = gameState.pits.slice();
-  let seeds = pits[pitIdx];
-  pits[pitIdx] = 0;
-  const skip = player === 1 ? P2_STORE : P1_STORE;
-  const ownStore = player === 1 ? P1_STORE : P2_STORE;
+  const dead = gameState.deadPits;
+  let captured = 0;
+  let chains = 0;
+
+  function nxt(idx){
+    let n = (idx + 1) % TOTAL_PITS, safety = TOTAL_PITS;
+    while(dead.has(n) && safety-- > 0) n = (n + 1) % TOTAL_PITS;
+    return n;
+  }
+
+  let cur = pitIdx;
+  let safety = 100;
+  while(safety-- > 0){
+    let seeds = pits[cur];
+    pits[cur] = 0;
+    let last = cur;
+    while(seeds > 0){
+      last = nxt(last);
+      pits[last]++;
+      seeds--;
+    }
+    const nextIdx = nxt(last);
+    if(pits[nextIdx] > 0){
+      cur = nextIdx;
+      chains++;
+      continue;
+    }
+    const capIdx = nxt(nextIdx);
+    if(pits[capIdx] > 0 && capIdx !== nextIdx && capIdx !== last){
+      captured = pits[capIdx];
+    }
+    break;
+  }
+
   const ownRow = player === 1 ? P1_ROW : P2_ROW;
-  let idx = pitIdx;
-  while(seeds > 0){
-    idx = (idx + 1) % 16;
-    if(idx === skip) continue;
-    pits[idx]++;
-    seeds--;
-  }
-  const lastIdx = idx;
-  let score = 0;
-  if(lastIdx === ownStore) score += 120;
-  if(ownRow.includes(lastIdx) && pits[lastIdx] === 1){
-    const opp = 14 - lastIdx;
-    if(pits[opp] > 0) score += 60 + pits[opp] * 12;
-  }
-  score += pits[ownStore] * 4;
-  score += ownRow.reduce((a,i)=>a+pits[i],0);
   const oppRow = player === 1 ? P2_ROW : P1_ROW;
-  const oppSkip = player === 1 ? P1_STORE : P2_STORE;
-  for(const i of oppRow){
+  const ownSeedsLeft = ownRow.reduce((a,i)=>a + (dead.has(i)?0:pits[i]), 0);
+  const oppSeedsLeft = oppRow.reduce((a,i)=>a + (dead.has(i)?0:pits[i]), 0);
+
+  let score = 0;
+  score += captured * 25;          // captures dominate
+  score += chains  * 8;            // continuations are good
+  score += ownSeedsLeft * 0.5;     // keep material on own side
+  score -= oppSeedsLeft * 0.3;     // starve opponent
+  // Defensive: penalise leaving a setup the opponent could easily capture
+  for(const i of ownRow){
+    if(dead.has(i)) continue;
     if(pits[i] === 0){
-      const myOpp = 14 - i;
-      if(pits[myOpp] > 0){
-        for(const j of oppRow){
-          let s = pits[j], k = j;
-          while(s > 0){
-            k = (k+1) % 16;
-            if(k === oppSkip) continue;
-            if(k === i && s === 1){ score -= pits[myOpp] * 3; break; }
-            s--;
-          }
-        }
-      }
+      // could opponent land a seed here on their next move?
+      // (cheap heuristic — skipped depth)
+      score -= 1;
     }
   }
   score += Math.random() * 0.5;
@@ -802,8 +962,8 @@ function showBoardBanner(msg, variant){
 }
 
 function showWinner(){
-  const p1 = gameState.pits[P1_STORE];
-  const p2 = gameState.pits[P2_STORE];
+  const p1 = gameState.houses[1];
+  const p2 = gameState.houses[2];
   const name1 = gameState.playerNames[1] || t('defaultPlayer1');
   const name2 = gameState.playerNames[2] || t('defaultPlayer2');
 
@@ -1155,7 +1315,9 @@ $(function(){
   applyLanguage();
 
   // Empty board until the user clicks Play
-  gameState.pits = new Array(16).fill(0);
+  gameState.pits = new Array(TOTAL_PITS).fill(0);
+  gameState.houses = { 1: 0, 2: 0 };
+  gameState.deadPits = new Set();
   renderBoard();
   setRunningState(false);
 
