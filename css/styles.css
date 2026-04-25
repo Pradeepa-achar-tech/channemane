@@ -423,6 +423,33 @@ body{
     0 0 26px rgba(255,179,71,0.9);
 }
 .pit.active{ animation: pitActive 1s ease-in-out infinite; }
+
+/* "Pick this one to continue your turn" prompt — bright green pulse,
+   visually distinct from the gold hover so the player knows EXACTLY
+   which pit they need to tap next. */
+.pit.continue-prompt{
+  cursor:pointer !important;
+  animation: continuePulse 0.7s ease-in-out infinite;
+  z-index: 5;
+}
+@keyframes continuePulse{
+  0%,100%{
+    box-shadow:
+      inset 0 8px 18px rgba(0,0,0,0.95),
+      inset 0 0 24px rgba(108,255,144,0.45),
+      0 0 0 3px #6cff90,
+      0 0 28px rgba(108,255,144,0.7);
+    transform: scale(1);
+  }
+  50%{
+    box-shadow:
+      inset 0 8px 18px rgba(0,0,0,0.95),
+      inset 0 0 30px rgba(108,255,144,0.65),
+      0 0 0 4px #b6ffc5,
+      0 0 50px rgba(108,255,144,1);
+    transform: scale(1.06);
+  }
+}
 @keyframes pitActive{
   0%,100%{ box-shadow: inset 0 8px 18px rgba(0,0,0,0.95), 0 0 0 2px var(--glow), 0 0 14px rgba(255,179,71,0.5); }
   50%   { box-shadow: inset 0 8px 18px rgba(0,0,0,0.95), 0 0 0 3px var(--glow-strong), 0 0 24px rgba(255,179,71,0.9); }

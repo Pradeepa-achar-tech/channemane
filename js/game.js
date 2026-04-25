@@ -78,6 +78,7 @@ const I18N = {
     newRound:    "ಸುತ್ತು {n} ಪ್ರಾರಂಭ",
     deadPit:     "ಸತ್ತ ಮನೆ",
     deadPitsAdded: "{n} ಸತ್ತ ಮನೆಗಳಾದವು",
+    pickToContinue: "ಮುಂದುವರೆಸಲು ಹೊಳೆಯುವ ಕುಳಿಯನ್ನು ಒತ್ತಿರಿ",
     logSow:     "{name} ಕುಳಿ {i} ರಿಂದ ಬಿತ್ತಿದರು",
     logCapture: "{name} ಕುಳಿ {i} ರಿಂದ {n} ಕಾಳುಗಳನ್ನು ಹಿಡಿದರು",
     logRoundEnd: "ಸುತ್ತು {n} ಮುಗಿಯಿತು",
@@ -146,6 +147,7 @@ const I18N = {
     newRound:    "Round {n} begins",
     deadPit:     "Dead pit",
     deadPitsAdded: "{n} pit(s) became dead",
+    pickToContinue: "Tap the glowing pit to continue",
     logSow:     "{name} sowed from pit {i}",
     logCapture: "{name} captured {n} seeds from pit {i}",
     logRoundEnd: "Round {n} ended",
@@ -200,6 +202,11 @@ const gameState = {
   isAnimating: false,
   gameOver: false,
   isRunning: false,
+  // When a sow ends with the "continue" condition, we set this to
+  // the pit the player must click next to continue their turn.
+  // This makes gameplay feel like the real physical game — the player
+  // moves the seeds with their own hands, not a single auto-played turn.
+  continuePit: null,
   moveLog: [],
   lang: 'kn'
 };
@@ -445,6 +452,7 @@ function stopGame(){
   gameState.deadPits = new Set();
   gameState.roundNumber = 1;
   gameState.moveLog = [];
+  if(typeof clearContinuePrompt === 'function') clearContinuePrompt();
   renderBoard();
   $('.win-overlay, .confetti, .flying-seed, .game-toast, .spark, .firework').remove();
   $('#thinking').text('');
@@ -495,6 +503,20 @@ function onPitClick(idx, pitEl){
     cleanupModalArtifacts();
   }
   if(!gameState.isRunning) return;
+
+  // Mid-turn: the user must click the highlighted continue-pit.
+  if(gameState.continuePit !== null){
+    if(idx === gameState.continuePit){
+      const cont = gameState.continuePit;
+      clearContinuePrompt();
+      performSowing(cont, gameState.currentPlayer);
+    } else {
+      $(pitEl).addClass('shake');
+      setTimeout(()=> $(pitEl).removeClass('shake'), 520);
+    }
+    return;
+  }
+
   if(pitEl.classList.contains('no-click')) return;
   const player = gameState.currentPlayer;
   const row = player === 1 ? P1_ROW : P2_ROW;
@@ -681,88 +703,104 @@ async function _takeTurn(pitIdx){
     Sound.invalid();
     return;
   }
+  await performSowing(pitIdx, player);
+}
+
+/* Pick up `pitIdx` and sow CCW. After the last seed, EITHER:
+     - the next pit has seeds → for a human, highlight that pit and
+       wait for them to click it (return); for the AI, auto-recurse
+     - the next pit is empty → check capture, then end turn
+   This is what makes it feel like the physical game — the player
+   moves seeds with their own hand, one pickup per click. */
+async function performSowing(pitIdx, player){
+  // Clear any prior continue-prompt
+  clearContinuePrompt();
 
   gameState.isAnimating = true;
   updateTurnIndicator();
   Sound.pickup();
+  logMove('logSow', {p: player, i: pitIdx});
 
-  const startIdx = pitIdx;
-  let currentPit = pitIdx;
-  let safetyChain = 0;             // how many continue-sows in this turn
-  const MAX_CHAIN = 200;           // upper bound (huge for safety)
-  let didCapture = false;
+  let seeds = gameState.pits[pitIdx];
+  gameState.pits[pitIdx] = 0;
+  renderPit(pitIdx);
 
-  // Continuous sowing loop. We pick up the current pit's seeds,
-  // sow CCW, then check the pit AFTER the last seed:
-  //   - has seeds → pick those up and continue
-  //   - empty → check pit-after-that:
-  //       has seeds → CAPTURE → turn ends
-  //       empty    → turn ends with no capture
-  while(safetyChain++ < MAX_CHAIN){
-    let seeds = gameState.pits[currentPit];
-    gameState.pits[currentPit] = 0;
-    renderPit(currentPit);
-
-    let lastIdx = currentPit;
-    while(seeds > 0){
-      lastIdx = nextPit(lastIdx);
-      await flySeed(currentPit, lastIdx);
-      if(!gameState.isRunning) return;
-      gameState.pits[lastIdx]++;
-      renderPit(lastIdx);
-      $('#pit-' + lastIdx).find('.seed').last().addClass('drop');
-      Sound.clack();
-      seeds--;
-    }
-
-    // After last seed dropped, examine the next pit.
-    const nextIdx = nextPit(lastIdx);
-
-    if(gameState.pits[nextIdx] > 0){
-      // CONTINUE: pick up this pit and keep sowing.
-      logMove('logSow', {p: player, i: currentPit});
-      currentPit = nextIdx;
-      await sleep(220);
-      if(!gameState.isRunning) return;
-      continue;
-    }
-
-    // nextIdx is empty — check the pit after it.
-    const captureIdx = nextPit(nextIdx);
-    const captureCount = gameState.pits[captureIdx];
-
-    // If captureIdx === nextIdx (e.g. only one live pit left) treat as no capture.
-    if(captureCount > 0 && captureIdx !== nextIdx && captureIdx !== lastIdx){
-      // CAPTURE
-      $('#pit-' + captureIdx).addClass('capture-flash');
-      $('#pit-' + nextIdx).addClass('capture-flash');
-      await sleep(380);
-      if(!gameState.isRunning) return;
-      gameState.houses[player] += captureCount;
-      gameState.pits[captureIdx] = 0;
-      renderPit(captureIdx);
-      renderPit(nextIdx);
-      renderHouse(player);
-      $('#pit-' + captureIdx + ', #pit-' + nextIdx).removeClass('capture-flash');
-      showBoardBanner(t('capture', {n: captureCount}), 'capture');
-      Sound.capture();
-      logMove('logCapture', {p: player, i: captureIdx, n: captureCount});
-      didCapture = true;
-    } else {
-      // Two empties (or wrap-around): turn ends with no capture
-      if(!didCapture) logMove('logSow', {p: player, i: startIdx});
-    }
-    break;
+  let lastIdx = pitIdx;
+  while(seeds > 0){
+    lastIdx = nextPit(lastIdx);
+    await flySeed(pitIdx, lastIdx);
+    if(!gameState.isRunning) return;
+    gameState.pits[lastIdx]++;
+    renderPit(lastIdx);
+    $('#pit-' + lastIdx).find('.seed').last().addClass('drop');
+    Sound.clack();
+    seeds--;
   }
 
-  // Hand over to the other player and check whether the round ends
-  // because the next player has no live moves.
+  // What happens next?
+  const nextIdx = nextPit(lastIdx);
+
+  if(gameState.pits[nextIdx] > 0){
+    // Continue rule applies. Decide: human waits, AI auto-plays.
+    const isAI = (gameState.gameMode === 'pvai' && player === 2);
+    if(isAI){
+      await sleep(420);
+      if(!gameState.isRunning) return;
+      await performSowing(nextIdx, player);
+      return;
+    }
+    // Human: light up the next pit and wait for the click.
+    showContinuePrompt(nextIdx);
+    gameState.isAnimating = false;
+    return;
+  }
+
+  // Next pit is empty — check capture.
+  const captureIdx = nextPit(nextIdx);
+  const captureCount = gameState.pits[captureIdx];
+  if(captureCount > 0 && captureIdx !== nextIdx && captureIdx !== lastIdx){
+    $('#pit-' + captureIdx + ', #pit-' + nextIdx).addClass('capture-flash');
+    await sleep(380);
+    if(!gameState.isRunning) return;
+    gameState.houses[player] += captureCount;
+    gameState.pits[captureIdx] = 0;
+    renderPit(captureIdx);
+    renderPit(nextIdx);
+    renderHouse(player);
+    $('#pit-' + captureIdx + ', #pit-' + nextIdx).removeClass('capture-flash');
+    showBoardBanner(t('capture', {n: captureCount}), 'capture');
+    Sound.capture();
+    logMove('logCapture', {p: player, i: captureIdx, n: captureCount});
+  }
+
+  await finishTurn(player);
+}
+
+/* Highlight the pit the human must click to continue sowing.
+   Lock all other pits so only that one is interactive. */
+function showContinuePrompt(idx){
+  gameState.continuePit = idx;
+  $('.pit').addClass('no-click').removeClass('continue-prompt');
+  $('#pit-' + idx).removeClass('no-click').addClass('continue-prompt');
+  // Brief banner the first time it happens in a turn.
+  if(!gameState._continueBannerShown){
+    showBoardBanner(t('pickToContinue'), '');
+    gameState._continueBannerShown = true;
+  }
+}
+function clearContinuePrompt(){
+  gameState.continuePit = null;
+  gameState._continueBannerShown = false;
+  $('.pit.continue-prompt').removeClass('continue-prompt');
+}
+
+/* Wrap up a turn: hand off, check round-end, kick off AI move. */
+async function finishTurn(player){
+  clearContinuePrompt();
   const nextPlayer = (player === 1) ? 2 : 1;
   gameState.currentPlayer = nextPlayer;
 
   if(rowSeedCount(nextPlayer) === 0){
-    // Round over — current `player` (the one who just moved) takes
-    // any seeds left on the board into their house.
     await endRound(player);
     if(gameState.gameOver) return;
   }
@@ -770,7 +808,6 @@ async function _takeTurn(pitIdx){
   gameState.isAnimating = false;
   updateTurnIndicator();
 
-  // AI's move
   if(!gameState.gameOver
       && gameState.gameMode === 'pvai'
       && gameState.currentPlayer === 2){
