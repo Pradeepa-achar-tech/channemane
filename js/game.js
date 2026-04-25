@@ -777,21 +777,20 @@ async function performSowing(pitIdx, player){
 }
 
 /* Highlight the pit the human must click to continue sowing.
-   Lock all other pits so only that one is interactive. */
+   Lock all other pits so only that one is interactive. The bright
+   green pulse is the main signal; a hover tooltip on the pit gives
+   first-time players a hint without taking over the screen. */
 function showContinuePrompt(idx){
   gameState.continuePit = idx;
-  $('.pit').addClass('no-click').removeClass('continue-prompt');
-  $('#pit-' + idx).removeClass('no-click').addClass('continue-prompt');
-  // Brief banner the first time it happens in a turn.
-  if(!gameState._continueBannerShown){
-    showBoardBanner(t('pickToContinue'), '');
-    gameState._continueBannerShown = true;
-  }
+  $('.pit').addClass('no-click').removeClass('continue-prompt').removeAttr('title');
+  $('#pit-' + idx)
+    .removeClass('no-click')
+    .addClass('continue-prompt')
+    .attr('title', t('pickToContinue'));
 }
 function clearContinuePrompt(){
   gameState.continuePit = null;
-  gameState._continueBannerShown = false;
-  $('.pit.continue-prompt').removeClass('continue-prompt');
+  $('.pit.continue-prompt').removeClass('continue-prompt').removeAttr('title');
 }
 
 /* Wrap up a turn: hand off, check round-end, kick off AI move. */
