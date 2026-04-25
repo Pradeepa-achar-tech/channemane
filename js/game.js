@@ -79,6 +79,7 @@ const I18N = {
     deadPit:     "ಸತ್ತ ಮನೆ",
     deadPitsAdded: "{n} ಸತ್ತ ಮನೆಗಳಾದವು",
     pickToContinue: "ಮುಂದುವರೆಸಲು ಹೊಳೆಯುವ ಕುಳಿಯನ್ನು ಒತ್ತಿರಿ",
+    credit: "ಪ್ರೀತಿಯಿಂದ {h} Thanthrajnaani ಅವರಿಂದ · ಕುಂದಾಪುರ",
     logSow:     "{name} ಕುಳಿ {i} ರಿಂದ ಬಿತ್ತಿದರು",
     logCapture: "{name} ಕುಳಿ {i} ರಿಂದ {n} ಕಾಳುಗಳನ್ನು ಹಿಡಿದರು",
     logRoundEnd: "ಸುತ್ತು {n} ಮುಗಿಯಿತು",
@@ -148,6 +149,7 @@ const I18N = {
     deadPit:     "Dead pit",
     deadPitsAdded: "{n} pit(s) became dead",
     pickToContinue: "Tap the glowing pit to continue",
+    credit: "Made with {h} by Thanthrajnaani · Kundapura",
     logSow:     "{name} sowed from pit {i}",
     logCapture: "{name} captured {n} seeds from pit {i}",
     logRoundEnd: "Round {n} ended",
@@ -1172,6 +1174,10 @@ function applyLanguage(){
 
   // Lang toggle button
   $('#langToggle').text(t('langToggle'));
+
+  // Credit footer — replace {h} with the animated heart span
+  const heart = '<span class="heart" aria-hidden="true">❤</span>';
+  $('#creditText').html(t('credit').replace('{h}', heart));
 
   // Re-render dynamic pieces
   refreshPlayerNameUI();
